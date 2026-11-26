@@ -3,9 +3,11 @@ const { isObjectBody } = require('../utils/authValidation');
 const { isValidId } = require('../middlewares/idValidationMiddleware');
 const { sendDatabaseError } = require('../utils/databaseAvailability');
 const { logControllerError } = require('../utils/controllerLogger');
+const { withTransaction, BusinessError, sendTransactionError } = require('../utils/transaction');
+const { notifySupport } = require('../utils/customerNotifications');
 
 const PAGE_SIZE = 20;
-const FIELDS = 'id, subject, message, status, admin_reply, replied_at, created_at, updated_at';
+const FIELDS = 'id, order_id, subject, message, status, admin_reply, replied_at, created_at, updated_at';
 const STATUSES = new Set(['open', 'in_progress', 'resolved']);
 
 function validText(value, maxLength) {
@@ -31,8 +33,9 @@ function sendPage(res, rows) {
 }
 
 exports.create = async (req, res) => {
-  if (!isObjectBody(req.body) || Object.keys(req.body).some(key => !['subject', 'message'].includes(key))) {
-    return res.status(400).json({ message: 'Yêu cầu chỉ được gồm tiêu đề và nội dung hỗ trợ.' });
+  if (!isObjectBody(req.body) || Object.keys(req.body).some(key => !['subject', 'message', 'order_id'].includes(key)) ||
+      (req.body.order_id != null && (!['number','string'].includes(typeof req.body.order_id) || !isValidId(String(req.body.order_id))))) {
+    return res.status(400).json({ message: 'Thông tin yêu cầu hoặc mã đơn hàng không hợp lệ.' });
   }
   if (!validText(req.body.subject, 150)) {
     return res.status(400).json({ message: 'Tiêu đề cần từ 1 đến 150 ký tự.' });
@@ -41,10 +44,12 @@ exports.create = async (req, res) => {
     return res.status(400).json({ message: 'Nội dung cần từ 1 đến 4.000 ký tự.' });
   }
   try {
-    const [result] = await db.query(
-      'INSERT INTO support_tickets (user_id, subject, message) VALUES (?, ?, ?)',
-      [req.user.id, req.body.subject.trim(), req.body.message.trim()]
-    );
+    const values = [req.user.id, req.body.subject.trim(), req.body.message.trim()];
+    const [result] = req.body.order_id == null
+      ? await db.query('INSERT INTO support_tickets (user_id, subject, message) VALUES (?, ?, ?)', values)
+      : await db.query(`INSERT INTO support_tickets (user_id, subject, message, order_id)
+          SELECT ?, ?, ?, id FROM orders WHERE id=? AND user_id=?`, [...values, req.body.order_id, req.user.id]);
+    if (!result.affectedRows) return res.status(404).json({ message: 'Không tìm thấy đơn hàng.' });
     return res.status(201).json({ id: result.insertId, message: 'Đã gửi yêu cầu hỗ trợ.' });
   } catch (error) {
     logControllerError('supportController', 'create', error);
@@ -86,7 +91,7 @@ exports.listAdmin = async (req, res) => {
   if (cursor === false) return;
   try {
     const [rows] = await db.query(
-      `SELECT t.id, t.subject, t.message, t.status, t.admin_reply, t.replied_at, t.created_at, t.updated_at,
+      `SELECT t.id, t.order_id, t.subject, t.message, t.status, t.admin_reply, t.replied_at, t.created_at, t.updated_at,
               u.name AS customer_name, u.email AS customer_email
        FROM support_tickets t JOIN users u ON u.id = t.user_id
        ${cursor === null ? '' : 'WHERE t.id < ?'} ORDER BY t.id DESC LIMIT 21`,
@@ -118,13 +123,59 @@ exports.updateAdmin = async (req, res) => {
   if (hasReply) { assignments.push('admin_reply = ?', 'replied_at = CURRENT_TIMESTAMP'); values.push(req.body.reply.trim()); }
   values.push(req.params.id);
   try {
-    await db.query(`UPDATE support_tickets SET ${assignments.join(', ')} WHERE id = ?`, values);
-    // Read back even for a no-op status update; unchanged values are still success.
-    const [rows] = await db.query(`SELECT ${FIELDS} FROM support_tickets WHERE id = ?`, [req.params.id]);
-    if (!rows.length) return res.status(404).json({ message: 'Không tìm thấy yêu cầu hỗ trợ.' });
-    return res.json(rows[0]);
+    const updated = await withTransaction(async connection => {
+      const [[owner]] = await connection.query('SELECT user_id FROM support_tickets WHERE id=? FOR UPDATE', [req.params.id]);
+      if (!owner) throw new BusinessError(404, 'Không tìm thấy yêu cầu hỗ trợ.');
+      await connection.query(`UPDATE support_tickets SET ${assignments.join(', ')} WHERE id = ?`, values);
+      if (hasReply) {
+        await connection.query("INSERT INTO support_messages(ticket_id,sender_role,body) VALUES (?, 'admin', ?)",
+          [req.params.id, req.body.reply.trim()]);
+        await notifySupport(connection, owner.user_id, req.params.id);
+      }
+      const [[ticket]] = await connection.query(`SELECT ${FIELDS} FROM support_tickets WHERE id = ?`, [req.params.id]);
+      return ticket;
+    });
+    return res.json(updated);
   } catch (error) {
+    if (sendTransactionError(res, error)) return;
     logControllerError('supportController', 'updateAdmin', error);
     return sendDatabaseError(res, error);
+  }
+};
+
+function messages(admin) {
+  return async (req, res) => {
+    try {
+      const params = admin ? [req.params.id] : [req.params.id, req.user.id];
+      const [[ticket]] = await db.query('SELECT id FROM support_tickets WHERE id = ?' + (admin ? '' : ' AND user_id=?'), params);
+      if (!ticket) return res.status(404).json({ message: 'Không tìm thấy yêu cầu hỗ trợ.' });
+      const [rows] = await db.query('SELECT id, sender_role, body, created_at FROM support_messages WHERE ticket_id=? ORDER BY id', [ticket.id]);
+      res.json(rows);
+    } catch (error) {
+      logControllerError('supportController', 'messages', error);
+      sendDatabaseError(res, error);
+    }
+  };
+}
+exports.messagesMine = messages(false);
+exports.messagesAdmin = messages(true);
+
+exports.replyMine = async (req, res) => {
+  if (!isObjectBody(req.body) || Object.keys(req.body).some(key => key !== 'message') || !validText(req.body.message, 4000)) {
+    return res.status(400).json({ message: 'Nội dung cần từ 1 đến 4.000 ký tự.' });
+  }
+  try {
+    const inserted = await withTransaction(async connection => {
+      const [[ticket]] = await connection.query('SELECT id,status FROM support_tickets WHERE id=? AND user_id=? FOR UPDATE', [req.params.id,req.user.id]);
+      if (!ticket) throw new BusinessError(404, 'Không tìm thấy yêu cầu hỗ trợ.');
+      const [result] = await connection.query("INSERT INTO support_messages(ticket_id,sender_role,body) VALUES (?, 'customer', ?)", [ticket.id,req.body.message.trim()]);
+      await connection.query("UPDATE support_tickets SET status=IF(status='resolved','open',status), updated_at=CURRENT_TIMESTAMP WHERE id=?", [ticket.id]);
+      return { id: result.insertId, status: ticket.status === 'resolved' ? 'open' : ticket.status };
+    });
+    res.status(201).json(inserted);
+  } catch (error) {
+    if (sendTransactionError(res, error)) return;
+    logControllerError('supportController', 'replyMine', error);
+    sendDatabaseError(res, error);
   }
 };

@@ -2,6 +2,7 @@
 const router = express.Router();
 
 const orderController = require('../controllers/orderController');
+const commerce = require('../controllers/orderCommerceController');
 const {
   requireAuth,
   requireAdmin
@@ -15,6 +16,16 @@ router.get(
   requireAdmin,
   orderController.getAllOrdersAdmin
 );
+
+router.get('/admin/coupons', requireAuth, requireAdmin, commerce.coupons);
+router.post('/admin/coupons', requireAuth, requireAdmin, commerce.createCoupon);
+router.patch('/admin/coupons/:id', requireAuth, requireAdmin, validateIdParam, commerce.setCouponActive);
+router.get('/admin/returns', requireAuth, requireAdmin, commerce.listReturns);
+router.patch('/admin/returns/:id', requireAuth, requireAdmin, validateIdParam, commerce.decideReturn);
+router.patch('/admin/:id/status', requireAuth, requireAdmin, validateIdParam, commerce.advance);
+router.post('/coupon-preview', requireAuth, commerce.preview);
+router.get('/:id/activity', requireAuth, validateIdParam, commerce.activity);
+router.post('/:id/returns', requireAuth, validateIdParam, commerce.requestReturn);
 
 // Khách hàng: tạo và xem đơn của chính mình
 router.post('/', requireAuth, orderController.createOrder);

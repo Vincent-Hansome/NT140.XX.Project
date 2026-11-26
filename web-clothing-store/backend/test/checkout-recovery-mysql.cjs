@@ -35,6 +35,7 @@ async function main() {
   const [historical]=await setup.query('SELECT id,user_id,total,status,created_at FROM orders');
   const {migrate}=require('../scripts/migrate-checkout.cjs');
   await migrate(setup);await migrate(setup);
+  await require('../scripts/migrate-features.cjs').migrate(setup);
   assert.deepEqual((await setup.query('SELECT id,user_id,total,status,created_at FROM orders'))[0],historical);
   assert.equal((await setup.query('SELECT checkout_key FROM orders WHERE id=1'))[0][0].checkout_key,null);
   console.log('PASS additive migration preserves historical orders and is repeatable');
@@ -116,7 +117,7 @@ async function main() {
         const query = c.query.bind(c);
         c.query = (sql, ...args) => {
           const pending = query(sql, ...args);
-          if (sql.includes('SELECT id, price, stock FROM products')) {
+          if (sql.includes('SELECT id, price, stock, size, color FROM products')) {
             db.getConnection = originalAcquire;
             reached();
           }

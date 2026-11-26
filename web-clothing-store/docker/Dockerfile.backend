@@ -16,4 +16,4 @@ USER node
 
 EXPOSE 3001
 
-CMD ["npm", "start"]
+CMD ["sh", "-c", "node scripts/migrate-features.cjs && exec node server.js"]

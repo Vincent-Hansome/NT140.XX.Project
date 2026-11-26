@@ -35,6 +35,7 @@ describe('isolated MySQL business regressions', { skip: process.env.RUN_MYSQL_TE
       await require('../scripts/migrate-checkout.cjs').migrate(setup);
       await require('../scripts/migrate-checkout.cjs').migrate(setup);
       const [[mode]] = await setup.query('SELECT @@sql_mode AS mode');
+      await require('../scripts/migrate-features.cjs').migrate(setup);
       assert.match(mode.mode, /STRICT_TRANS_TABLES/);
     } finally { await setup.end(); }
     passwordHash = await require('bcrypt').hash('Baseline-test-password-2026', 4);
@@ -131,6 +132,43 @@ describe('isolated MySQL business regressions', { skip: process.env.RUN_MYSQL_TE
   }
   const pauseAfter = fragment => interceptQuery(fragment, true);
   const observeBefore = fragment => interceptQuery(fragment, false);
+
+  test('variant inventory keeps colors and sizes distinct through cart, checkout, retries and admin edits', async () => {
+    const admin = await user('admin'), buyer = await user(), second = await user();
+    const p = await product({stock:5});
+    const variants = '/products/' + p + '/variants';
+    const initial = (await request(variants)).data;
+    const inventory = {revision:initial.revision, variants:[
+      {id:0,stock:2}, {size:'M',color:'Đen',stock:1}, {size:'L',color:'Kem',stock:2}
+    ]};
+    assert.equal((await request(variants,buyer,'PUT',inventory)).status,403);
+    assert.equal((await request(variants,admin,'PUT',inventory)).status,200);
+    assert.equal((await request(variants,admin,'PUT',inventory)).status,409);
+    const available=(await request(variants)).data;
+    const black=available.variants.find(row=>row.color==='Đen');
+    const cream=available.variants.find(row=>row.color==='Kem');
+    const add=(u,id,q)=>request('/cart',u,'POST',{product_id:p,variant_id:id,quantity:q});
+    assert.equal((await add(buyer,black.id,2)).status,409);
+    assert.equal((await add(buyer,black.id,1)).status,201);
+    assert.equal((await add(second,black.id,1)).status,201);
+    assert.equal((await add(buyer,cream.id,1)).status,201);
+    assert.equal((await add(buyer,0,2)).status,201);
+    assert.equal((await cart(buyer)).length,3);
+    assert.equal((await request(variants,admin,'PUT',{revision:available.revision,variants:available.variants.filter(v=>v.id!==black.id)})).status,409);
+    const token=crypto.randomUUID();
+    const first=await request('/orders',buyer,'POST',{}, {'Idempotency-Key':token});
+    assert.equal(first.status,201);
+    const replay=await request('/orders',buyer,'POST',{}, {'Idempotency-Key':token});
+    assert.equal(replay.data.orderId,first.data.orderId);
+    assert.equal((await request('/orders',second,'POST',{})).status,409);
+    assert.equal((await cart(second)).length,1);
+    const detail=(await request('/orders/'+first.data.orderId,buyer)).data;
+    assert.equal(detail.items.find(row=>row.variant_id===black.id).variant_color,'Đen');
+    assert.equal(detail.items.find(row=>row.variant_id===cream.id).variant_size,'L');
+    const after=(await request(variants)).data;
+    assert.deepEqual(after.variants.map(v=>v.stock),[0,0,1]);
+    assert.equal(await stock(p),1);
+  });
 
   test('checkout validates keys, replays the same result and preserves refilled cart', async () => {
     const u=await user(), p=await product();
@@ -346,7 +384,7 @@ describe('isolated MySQL business regressions', { skip: process.env.RUN_MYSQL_TE
   test('stale admin form racing checkout returns 409; fresh and unchanged updates succeed', async () => {
     const admin = await user('admin'), u = await user(), p = await product(); await add(u, p);
     const old = (await request(`/products/${p}`)).data;
-    const pause = pauseAfter('SELECT id, price, stock FROM products');
+    const pause = pauseAfter('SELECT id, price, stock, size, color FROM products');
     const checkout = request('/orders', u, 'POST', {});
     try {
       await pause.reached;
@@ -433,5 +471,90 @@ describe('isolated MySQL business regressions', { skip: process.env.RUN_MYSQL_TE
     const login = await request('/auth/login', null, 'POST', { email: row.email, password: 'Changed-baseline-password-2026' });
     assert.equal(login.status, 200);
     assert.equal((await request('/users/me', { id: u.id, version: 1 })).status, 200);
+  });
+  test('coupon totals use one redemption across checkout retries and concurrent customers', async () => {
+    const admin = await user('admin'), people = [await user(),await user()];
+    const code = 'TEST-' + crypto.randomUUID().slice(0,12);
+    const spec = {code,discount_type:'percent',amount:'25',minimum_total:'50',use_limit:1,expires_at:new Date(Date.now()+3600000).toISOString()};
+    assert.equal((await request('/orders/admin/coupons',people[0],'POST',spec)).status,403);
+    assert.equal((await request('/orders/admin/coupons',admin,'POST',spec)).status,200);
+    const keys = people.map(() => crypto.randomUUID());
+    for (const person of people) {
+      const productId = await product({price:'100.02',stock:1});
+      await add(person,productId);
+      const quote = await request('/orders/coupon-preview',person,'POST',{code:code.toLowerCase()});
+      assert.equal(quote.data.discount,'25.01');
+      assert.equal(quote.data.total,'75.01');
+    }
+    const checkout = (i,expected) => request('/orders',people[i],'POST',{coupon:code,expected_total:expected},{'Idempotency-Key':keys[i]});
+    assert.equal((await checkout(0,'75.00')).status,409);
+    const orders = await Promise.all([checkout(0,'75.01'),checkout(1,'75.01')]);
+    assert.deepEqual(orders.map(o => o.status).sort(),[201,422]);
+    const winner = orders.findIndex(o => o.status===201);
+    assert.deepEqual((await checkout(winner,'75.01')).data,orders[winner].data);
+    const loser = 1 - winner;
+    assert.equal((await cart(people[loser])).length,1);
+    const saved = await request('/orders/'+orders[winner].data.orderId+'/activity',people[winner]);
+    assert.deepEqual(saved.data.discount,{code:code.toUpperCase(),subtotal:'100.02',discount:'25.01'});
+    const [[c]] = await db.query('SELECT used_count FROM coupons WHERE code=?',[code]);
+    assert.equal(c.used_count,1);
+  });
+  test('delivered item returns enforce ownership, shared quantity and idempotent review', async () => {
+    const admin=await user('admin'), customer=await user(), stranger=await user();
+    const p=await product({stock:2});
+    await add(customer,p,2);
+    const id=(await request('/orders',customer,'POST',{})).data.orderId;
+    const path='/orders/'+id;
+    const item=(await request(path,customer)).data.items[0];
+    const route=path+'/returns';
+    const payload={item_id:item.id,quantity:2,reason:'Cần đổi kích cỡ',kind:'exchange'};
+    const key={'Idempotency-Key':crypto.randomUUID()};
+    assert.equal((await request(route,customer,'POST',payload,key)).status,409);
+    assert.equal((await request('/orders/admin/'+id+'/status',admin,'PATCH',{status:'delivered'})).status,409);
+    for (const status of ['confirmed','packing','shipped','delivered']) {
+      assert.equal((await request('/orders/admin/'+id+'/status',admin,'PATCH',{status})).status,200);
+    }
+    assert.equal((await request(route,stranger,'POST',payload,key)).status,404);
+    const submitted=await request(route,customer,'POST',payload,key);
+    assert.equal(submitted.status,200);
+    assert.deepEqual((await request(route,customer,'POST',payload,key)).data,submitted.data);
+    assert.equal((await request(route,customer,'POST',payload,{'Idempotency-Key':crypto.randomUUID()})).status,409);
+    const review='/orders/admin/returns/'+submitted.data.id;
+    assert.equal((await request(review,customer,'PATCH',{status:'approved'})).status,403);
+    assert.equal((await request(review,admin,'PATCH',{status:'rejected'})).status,200);
+    const replacement=await request(route,customer,'POST',payload,{'Idempotency-Key':crypto.randomUUID()});
+    assert.equal(replacement.status,200);
+    assert.equal((await request('/orders/admin/returns/'+replacement.data.id,admin,'PATCH',{status:'approved'})).status,200);
+    const history=(await request(path+'/activity',customer)).data;
+    assert.deepEqual(history.timeline.map(x => x.status),['pending','confirmed','packing','shipped','delivered']);
+    assert.deepEqual(history.returns.map(x => x.status),['approved','rejected']);
+  });
+  test('notifications belong to the recipient and report dates use Vietnam delivery time', async () => {
+    const customer = await user(), other = await user(), admin = await user('admin');
+    const item = await product({price:'50.25',stock:4});
+    await add(customer,item);
+    const order = (await request('/orders',customer,'POST',{})).data.orderId;
+    for (const status of ['confirmed','packing','shipped','delivered']) {
+      const advanced = await request('/orders/admin/'+order+'/status',admin,'PATCH',{status});
+      assert.equal(advanced.status,200,JSON.stringify(advanced.data));
+    }
+    const inbox = await request('/notifications',customer);
+    assert.equal(inbox.data.items.length,4);
+    assert.equal(inbox.data.items[0].order_status,'delivered');
+    const read = '/notifications/'+inbox.data.items[0].id+'/read';
+    assert.equal((await request(read,other,'PATCH',{})).status,404);
+    assert.equal((await request(read,customer,'PATCH',{})).status,200);
+    assert.equal((await request(read,customer,'PATCH',{})).status,200);
+    assert.equal((await request('/notifications/unread',customer)).data.unread,3);
+    // 17:00 UTC is the start of the next calendar day in Vietnam.
+    await db.query("UPDATE order_status_events SET created_at=FROM_UNIXTIME(?) WHERE order_id=? AND status='delivered'",[Date.parse('2031-01-02T17:00:00Z')/1000,order]);
+    const report = day => '/reports/sales?from='+day+'&to='+day;
+    assert.equal((await request(report('2031-01-03'),other)).status,403);
+    assert.equal((await request(report('2031-02-31'),admin)).status,400);
+    assert.equal((await request(report('2031-01-02'),admin)).data.summary.orders,0);
+    const delivered = (await request(report('2031-01-03'),admin)).data;
+    assert.equal(delivered.summary.revenue,'50.25');
+    assert.equal(delivered.products[0].id,item);
+    assert.equal(Number(delivered.stock.find(row=>row.id===item).stock),3);
   });
 });

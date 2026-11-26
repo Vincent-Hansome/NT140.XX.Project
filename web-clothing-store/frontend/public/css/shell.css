@@ -1,0 +1,130 @@
+:root {
+  --ink: #1f3028;
+  --muted: #59645c;
+  --line: #d9d9ce;
+  --paper: #faf8f2;
+  --soft: #eeeee4;
+  --green: #203c32;
+  --site-gutter: clamp(1rem, 5vw, 6rem);
+  color: var(--ink);
+  background: var(--paper);
+}
+body { min-width: 0; min-height: 100vh; display: flex; flex-direction: column; }
+#main-content { flex: 1; }
+.skip-to-content {
+  position: absolute;
+  inset: 6px auto auto 8px;
+  padding: 12px 16px;
+  background: var(--green);
+  color: #fff;
+  transform: translateY(-150%);
+  z-index: 30;
+}
+.skip-to-content:focus { transform: none; }
+:where(a, button, input, textarea, select, summary):focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 3px;
+}
+.moc-header { position: relative; z-index: 5; border-bottom: 1px solid var(--line); background: var(--paper); }
+.moc-bar {
+  margin: 0 auto;
+  max-width: 1680px;
+  padding-inline: var(--site-gutter);
+  min-height: 80px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: clamp(20px, 4vw, 72px);
+}
+.moc-mark {
+  color: var(--green);
+  font: 500 36px/1.15 var(--serif);
+  letter-spacing: -.07em;
+  padding-right: .08em;
+}
+.moc-nav, .moc-tools, .moc-guest { display: flex; align-items: center; }
+.moc-nav { gap: clamp(15px, 2.2vw, 40px); }
+.moc-tools { gap: clamp(12px, 1.8vw, 28px); }
+.moc-guest { gap: 18px; }
+.moc-bar [hidden] { display: none; }
+.moc-nav a, .moc-tools a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.moc-nav a[aria-current], .moc-nav a:hover, .moc-tools a:hover,
+.moc-footer a:not(.moc-mark):hover {
+  text-decoration: underline;
+  text-underline-offset: 5px;
+}
+.moc-bag { gap: 7px; border-left: 1px solid var(--line); padding-left: clamp(12px, 1.8vw, 28px); }
+#cart-count {
+  min-width: 21px;
+  height: 21px;
+  display: inline-grid;
+  place-content: center;
+  padding: 0 5px;
+  border-radius: 100px;
+  background: var(--green);
+  color: #fff;
+  font: 600 11px/1 Inter, Arial, sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.moc-menu { display: none; }
+.moc-footer {
+  margin-top: auto;
+  padding: clamp(36px, 5vw, 76px) var(--site-gutter) 20px;
+  background: var(--green);
+  color: #f7f5e9;
+}
+.moc-footer-inner, .moc-footer-base { max-width: 1488px; margin-inline: auto; }
+.moc-footer-inner { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 24px; }
+.moc-footer-brand .moc-mark { display: inline-block; color: inherit; font-size: clamp(66px, 9vw, 138px); line-height: 1.15; }
+.moc-footer nav { display: flex; flex-direction: column; align-items: flex-start; }
+.moc-footer h2 { color: #c6d5c5; margin: 0 0 12px; font: 500 13px/1.5 Inter, Arial, sans-serif; }
+.moc-footer nav a, .moc-footer-base a { padding: 7px 0; font-size: 14px; }
+.moc-footer-base { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 42px; padding-top: 12px; border-top: 1px solid #50675b; }
+.moc-footer-base > span { color: #c6d5c5; font-size: 12px; }
+.moc-footer-base a span { margin-left: .45em; }
+@media (max-width: 860px) {
+  .moc-bar { grid-template-columns: 44px auto 1fr; gap: 12px; min-height: 66px; }
+  .moc-menu {
+    display: grid;
+    place-content: center;
+    background: transparent;
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 50%;
+    width: 44px;
+    height: 44px;
+    cursor: pointer;
+  }
+  .moc-menu span { display: block; width: 16px; height: 8px; border-block: 1.5px solid currentColor; }
+  .moc-mark { font-size: 30px; }
+  .moc-nav {
+    display: none;
+    position: absolute;
+    inset: 100% 0 auto;
+    padding: 8px var(--site-gutter) 16px;
+    border-bottom: 1px solid var(--line);
+    background: var(--paper);
+  }
+  .moc-nav.is-open { display: grid; gap: 0; }
+  .moc-nav a { border-top: 1px solid var(--line); }
+  .moc-tools { justify-self: end; }
+  .moc-tools .moc-register { display: none; }
+}
+@media (max-width: 640px) {
+  .moc-footer-inner { grid-template-columns: 1fr 1fr; }
+  .moc-footer-brand { grid-column: 1/-1; }
+  .moc-footer nav a { padding-block: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html:focus-within, html { scroll-behavior: auto; }
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}

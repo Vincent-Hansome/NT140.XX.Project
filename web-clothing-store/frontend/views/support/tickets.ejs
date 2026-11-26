@@ -1,7 +1,6 @@
-<section class="page support-page" data-support-customer>
-  <span class="eyebrow">MỘC / LUÔN LẮNG NGHE BẠN</span>
-  <h1>Bạn cần hỗ trợ<em>?</em></h1>
-  <p class="support-intro">Về một đơn hàng, một sản phẩm hay điều bạn muốn chia sẻ. Gửi lời nhắn để MỘC hỗ trợ bạn.</p>
+<section class="page support-page workspace-page" data-support-customer>
+  <a class="member-back" href="/profile"><span aria-hidden="true">←</span> Tài khoản</a>
+  <h1>Trung tâm hỗ trợ</h1>
   <p class="support-feedback" data-support-page-message role="status" aria-live="polite">Đang tải yêu cầu hỗ trợ…</p>
   <div class="support-signin" data-support-signin hidden>
     <p>Đăng nhập để gửi yêu cầu và theo dõi phản hồi của MỘC.</p>
@@ -9,14 +8,16 @@
   </div>
   <div class="support-layout" data-support-content hidden>
     <section class="support-compose" aria-labelledby="support-compose-title">
-      <span class="eyebrow">BẮT ĐẦU TỪ ĐÂY</span>
-      <h2 id="support-compose-title">Gửi một lời nhắn.</h2>
+      <h2 id="support-compose-title">Gửi yêu cầu</h2>
       <form class="support-form" data-support-form>
+        <label for="support-order">Đơn hàng liên quan</label>
+        <select id="support-order" name="order_id"><option value="">Yêu cầu chung</option></select>
+        <small data-support-order-note>Chọn đơn nếu cần hỗ trợ về việc mua hàng.</small>
         <label for="support-subject">Tiêu đề</label>
         <input id="support-subject" name="subject" type="text" required maxlength="150" placeholder="Ví dụ: Cần hỗ trợ về đơn hàng MC-00012" aria-describedby="support-subject-hint">
         <small id="support-subject-hint">Tối đa 150 ký tự.</small>
         <label for="support-message">Nội dung cần hỗ trợ</label>
-        <textarea id="support-message" name="message" rows="7" required maxlength="4000" placeholder="Chia sẻ vấn đề và mã đơn hàng nếu có…" aria-describedby="support-message-hint"></textarea>
+        <textarea id="support-message" name="message" rows="7" required maxlength="4000" placeholder="Chia sẻ vấn đề của bạn…" aria-describedby="support-message-hint"></textarea>
         <small id="support-message-hint">Tối đa 4.000 ký tự. Không gửi mật khẩu hoặc thông tin thẻ thanh toán.</small>
         <p class="support-feedback" data-support-form-message role="status" aria-live="polite"></p>
         <button class="button button-dark" type="submit">Gửi yêu cầu <span aria-hidden="true">→</span></button>
@@ -24,7 +25,7 @@
     </section>
     <section class="support-history" aria-labelledby="support-history-title">
       <div class="support-section-heading">
-        <div><span class="eyebrow">THEO DÕI CÙNG MỘC</span><h2 id="support-history-title">Yêu cầu của bạn.</h2></div>
+        <h2 id="support-history-title">Yêu cầu của bạn</h2>
         <button class="support-refresh" data-support-refresh type="button">Làm mới</button>
       </div>
       <p class="support-feedback" data-support-list-message role="status" aria-live="polite"></p>

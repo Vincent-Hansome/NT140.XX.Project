@@ -59,19 +59,24 @@ async function main() {
   Object.assign(process.env, { NODE_ENV: 'test', DB_HOST: '127.0.0.1', DB_PORT: String(port),
     DB_NAME: 'support_test', DB_USER: 'support_test', DB_PASSWORD: 'support-app-test-only',
     JWT_SECRET: crypto.randomBytes(48).toString('hex'), CSRF_TRUSTED_ORIGINS: origin });
+  const engagementMigration = require('../scripts/migrate-engagement.cjs').migrate;
+  await require('../scripts/migrate-commerce.cjs').migrate(connection);
+  await require('../scripts/migrate-insights.cjs').migrate(connection);
+  await engagementMigration(connection);
   db = require('../src/config/db');
   backend = require('../src/app').listen(0, '127.0.0.1');
   await new Promise(resolve => backend.once('listening', resolve));
   const base = `http://127.0.0.1:${backend.address().port}`;
   const csrf = (await (await fetch(`${base}/api/auth/csrf`)).json()).csrfToken;
   const cookie = account => account ? `token=${jwt.sign({ id: account.id, tokenVersion: 0 }, process.env.JWT_SECRET, { expiresIn: '5m' })}` : '';
-  async function request(route, account, method = 'GET', body, extraHeaders = {}) {
+  async function apiRequest(route, account, method = 'GET', body, extraHeaders = {}) {
     const headers = { Origin: origin, 'X-CSRF-Token': csrf, Cookie: cookie(account), ...extraHeaders };
     if (body !== undefined) headers['Content-Type'] = 'application/json';
-    const response = await fetch(`${base}/api/support${route}`, { method, headers,
+    const response = await fetch(`${base}/api${route}`, { method, headers,
       body: body === undefined ? undefined : JSON.stringify(body) });
     return { status: response.status, data: await response.json(), headers: response.headers };
   }
+  const request = (route,...args) => apiRequest('/support'+route,...args);
   const message = '<img src=x onerror="window.__supportXss=true">\nNội dung tiếng Việt 👋';
   let ticket;
   await check('anonymous access and missing CSRF are rejected', async () => {
@@ -169,7 +174,57 @@ async function main() {
     assert.deepEqual((await db.query('SELECT * FROM support_tickets ORDER BY id'))[0], rows);
   });
 
+  const [newProduct] = await connection.query("INSERT INTO products(name,price,stock) VALUES('Đồ thử',20000,2)");
+  const [newOrder] = await connection.query('INSERT INTO orders(user_id,total) VALUES(?,20000)',[accounts.a.id]);
+  const orderId = newOrder.insertId, productId = newProduct.insertId;
+  await connection.query('INSERT INTO order_items(order_id,product_id,quantity,price) VALUES(?,?,1,20000)',[orderId, productId]);
+  await check('linked tickets, multi-party history, customer ownership and migrated replies', async () => {
+    const input = {order_id:orderId, subject:'Hỗ trợ đơn hàng',message:'Nhắn lần đầu'};
+    assert.equal((await request('/tickets', accounts.b, 'POST', input)).status,404);
+    const created = await request('/tickets', accounts.a, 'POST', input);
+    assert.equal(created.status,201);
+    const path = '/tickets/'+created.data.id;
+    assert.equal((await request(path, accounts.a)).data.order_id,orderId);
+    assert.equal((await request(path+'/messages', accounts.b,'POST',{message:'Hi'})).status,404);
+    assert.equal((await request(path+'/messages', accounts.b)).status,404);
+    assert.equal((await request('/admin'+path,accounts.admin,'PATCH',{reply:'Phản hồi đầu',status:'resolved'})).status,200);
+    assert.equal((await request(path+'/messages',accounts.a,'POST',{message:'Cần thêm hỗ trợ'})).data.status,'open');
+    assert.equal((await request('/admin'+path,accounts.admin,'PATCH',{reply:'Phản hồi sau'})).status,200);
+    const expected = ['Phản hồi đầu','Cần thêm hỗ trợ','Phản hồi sau'];
+    assert.deepEqual((await request(path+'/messages', accounts.a)).data.map(m=>m.body),expected);
+    assert.deepEqual((await request('/admin'+path+'/messages',accounts.admin)).data.map(m=>m.body),expected);
+    const [legacy] = await connection.query("INSERT INTO support_tickets(user_id,subject,message,admin_reply) VALUES(?,'Cũ','Hỏi','Trả lời cũ')",[accounts.a.id]);
+    await engagementMigration(connection); await engagementMigration(connection);
+    assert.deepEqual((await request('/tickets/'+legacy.insertId+'/messages',accounts.a)).data.map(m=>m.body),['Trả lời cũ']);
+    assert.deepEqual((await request(path+'/messages', accounts.a)).data.map(m=>m.body),expected);
+  });
+  await check('wishlist saves idempotently and stays private between customers', async () => {
+    const item = '/wishlist/'+productId;
+    assert.equal((await apiRequest('/wishlist')).status,401);
+    for (let i=0;i<2;i++) assert.equal((await apiRequest(item,accounts.a,'PUT')).status,200);
+    assert.deepEqual((await apiRequest('/wishlist',accounts.a)).data.map(p=>p.id),[productId]);
+    assert.deepEqual((await apiRequest('/wishlist',accounts.b)).data,[]);
+    assert.equal((await apiRequest(item,accounts.b,'DELETE')).status,200);
+    assert.equal((await apiRequest(item,accounts.a,'DELETE')).status,200);
+    assert.deepEqual((await apiRequest('/wishlist',accounts.a)).data,[]);
+  });
+  await check('only a verified delivered buyer can publish one public review', async () => {
+    const endpoint = '/products/'+productId+'/reviews';
+    const input = {rating:4,body:'Đúng như hình.'};
+    assert.equal((await apiRequest(endpoint,accounts.a,'POST',input)).status,403);
+    await connection.query("UPDATE orders SET status='delivered' WHERE id=?",[orderId]);
+    assert.equal((await apiRequest(endpoint,accounts.b,'POST',input)).status,403);
+    assert.equal((await apiRequest(endpoint,accounts.a,'POST',{...input,rating:6})).status,400);
+    assert.deepEqual((await apiRequest(endpoint+'/eligibility',accounts.a)).data,{purchased:true,reviewed:false});
+    assert.equal((await apiRequest(endpoint,accounts.a,'POST',input)).status,201);
+    assert.equal((await apiRequest(endpoint,accounts.a,'POST',input)).status,409);
+    assert.deepEqual((await apiRequest(endpoint+'/eligibility',accounts.a)).data,{purchased:true,reviewed:true});
+    const result = (await apiRequest(endpoint)).data;
+    assert.equal(result.total,1); assert.equal(Number(result.average),4);
+    assert.equal(result.reviews[0].body,input.body);
+  });
   if (process.env.SUPPORT_UI_SMOKE === '1') {
+    await require('../scripts/migrate-variants.cjs').migrate(connection);
     process.env.API_PROXY_TARGET = base;
     frontend = require('../../frontend/server').listen(0, '127.0.0.1');
     await new Promise(resolve => frontend.once('listening', resolve));
@@ -177,7 +232,7 @@ async function main() {
     require('../src/config/trustedOrigins').trustedOrigins.add(ui);
     const playwright = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     browser = await playwright.chromium.launch({ channel: process.env.SUPPORT_BROWSER_CHANNEL || 'chrome', headless: true });
-    const output = path.resolve(__dirname, '../../test-artifacts/support');
+    const output = process.env.SUPPORT_UI_OUTPUT || path.resolve(__dirname, '../../test-artifacts/support');
     await fs.mkdir(output, { recursive: true });
     const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, reducedMotion: 'reduce' });
     const page = await context.newPage();
@@ -247,6 +302,23 @@ async function main() {
       await page.locator('[data-support-signin]').waitFor({ state: 'visible' });
       assert.equal(await page.locator('[data-support-content]').isVisible(), false);
       assert.equal(await page.locator('.support-ticket').count(), 0);
+    });
+    await check('customer opens linked order, replies through a notification, and manages saved products', async () => {
+      await page.goto(`${ui}/support?order=${orderId}`);
+      await page.waitForFunction(id => document.querySelector('#support-order').value === String(id), orderId);
+      await page.goto(`${ui}/support#ticket-${ticket}`);
+      const thread = page.locator(`#ticket-${ticket}[open]`);
+      await thread.getByLabel('Trả lời MỘC').fill('Tôi đã nhận phản hồi.');
+      await thread.getByRole('button',{name:'Gửi tin nhắn'}).click();
+      await thread.getByText('Tôi đã nhận phản hồi.',{exact:true}).waitFor();
+      await page.goto(`${ui}/products/${productId}`);
+      await page.getByText('Đúng như hình.',{exact:true}).waitFor();
+      await page.getByRole('button',{name:'Yêu thích',exact:false}).click();
+      await page.locator('[data-save-product][aria-pressed="true"]').waitFor();
+      await page.goto(`${ui}/wishlist`);
+      await page.getByRole('link',{name:'Chọn sản phẩm'}).waitFor();
+      await page.getByRole('button',{name:'Bỏ lưu Đồ thử'}).click();
+      await page.getByText('Bạn chưa lưu sản phẩm nào.',{exact:true}).waitFor();
     });
   }
   console.log(`Support verification complete: ${checks} checks passed.`);

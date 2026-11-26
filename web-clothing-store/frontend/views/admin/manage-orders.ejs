@@ -1,11 +1,32 @@
-<section class="page orders-page" data-admin-orders>
-  <span class="eyebrow">MỘC / KHÔNG GIAN QUẢN TRỊ</span>
-
-  <h1>Đơn hàng khách hàng<em>.</em></h1>
-
+<section class="page orders-page workspace-page" data-admin-orders>
+  <a class="member-back" href="/admin"><span aria-hidden="true">←</span> Quản trị cửa hàng</a>
+  <h1>Đơn hàng khách hàng</h1>
+  <nav class="commerce-links" data-commerce-nav hidden aria-label="Quản lý đơn hàng">
+    <a href="#order-list">Đơn hàng</a><a href="#returns">Yêu cầu đổi trả</a><a href="#coupons">Mã giảm giá</a>
+  </nav>
   <p class="form-message" data-admin-orders-message role="alert" aria-live="assertive"></p>
-
-  <div class="orders-list" data-admin-orders-list>
-    <p class="loading" role="status" aria-live="polite">Đang tải đơn hàng...</p>
+  <div id="order-list" class="orders-list" data-admin-orders-list><p class="loading" role="status">Đang tải đơn hàng…</p></div>
+  <button type="button" class="button button-outline" data-more-orders hidden>Xem đơn cũ hơn</button>
+  <div class="commerce-admin" data-commerce-admin hidden>
+    <section id="returns">
+      <h2>Yêu cầu đổi trả</h2>
+      <div data-admin-returns></div>
+      <button type="button" data-more-returns hidden>Xem thêm yêu cầu</button>
+    </section>
+    <section id="coupons">
+      <h2>Mã giảm giá</h2>
+      <form class="commerce-grid" data-create-coupon>
+        <label>Mã <input name="code" maxlength="32" required pattern="[A-Za-z0-9_\-]{2,32}" placeholder="VD: MOC10"></label>
+        <label>Loại giảm <select name="discount_type"><option value="percent">Phần trăm (%)</option><option value="fixed">Số tiền (₫)</option></select></label>
+        <label>Mức giảm <input name="amount" type="number" min=".01" step=".01" required></label>
+        <label>Đơn tối thiểu (₫) <input name="minimum_total" type="number" min="0" step=".01" value="0" required></label>
+        <label>Hạn dùng (giờ địa phương) <input name="expires_at" type="datetime-local" required></label>
+        <label>Số lượt tối đa <input name="use_limit" type="number" min="1" step="1" required></label>
+        <button type="submit">Tạo mã</button>
+      </form>
+      <p role="status" data-coupon-result></p>
+      <div data-admin-coupons></div>
+      <button type="button" data-more-coupons hidden>Xem thêm mã</button>
+    </section>
   </div>
 </section>

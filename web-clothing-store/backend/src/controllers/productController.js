@@ -4,6 +4,7 @@ const db = require('../config/db');
 const { logControllerError } = require('../utils/controllerLogger');
 const { BusinessError, withTransaction, sendTransactionError } = require('../utils/transaction');
 const { productRevision, withRevision } = require('../utils/productRevision');
+const { alternatives, options } = require('../utils/variants');
 
 const MAX_INT = 2_147_483_647;
 const MAX_PRICE = 99_999_999.99;
@@ -130,6 +131,19 @@ async function categoryExists(categoryId, connection = db) {
 
 exports.getAll = async (req, res) => {
   try {
+    if (req.query.variants === '1') {
+      const products = await withTransaction(async connection => {
+        const [rows] = await connection.query('SELECT * FROM products ORDER BY id');
+        const [variants] = await connection.query('SELECT id, product_id, size, color, stock FROM product_variants ORDER BY product_id, id');
+        const grouped = new Map();
+        for (const variant of variants) {
+          if (!grouped.has(variant.product_id)) grouped.set(variant.product_id, []);
+          grouped.get(variant.product_id).push(variant);
+        }
+        return rows.map(product => ({ ...withRevision(product), variants: options(product, grouped.get(product.id) || []) }));
+      });
+      return res.json(products);
+    }
     const [rows] = await db.query('SELECT * FROM products');
     res.json(rows.map(withRevision));
   } catch (error) {
@@ -195,6 +209,12 @@ exports.update = async (req, res) => {
       }
 
       const { name, description, price, stock, size, color, category_id } = validation.value;
+      if (stock !== rows[0].stock || size !== rows[0].size || color !== rows[0].color) {
+        const variants = await alternatives(connection, req.params.id, true);
+        if (variants.length) {
+          throw new BusinessError(409, 'Sản phẩm có nhiều biến thể. Quản lý tồn kho từng cỡ và màu trong mục Biến thể.');
+        }
+      }
       const fields = [name, description, price, stock, size, color, category_id];
       let query = 'UPDATE products SET name=?, description=?, price=?, stock=?, size=?, color=?, category_id=?';
 

@@ -36,6 +36,8 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/support', supportRoutes);
+app.use('/api', require('./routes/engagementRoutes'));
+app.use('/api', require('./routes/insightRoutes'));
 
 app.get('/', (req, res) => {
   res.json({ message: 'Clothing Store API is running' });

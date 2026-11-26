@@ -3,6 +3,7 @@ const { sendDatabaseError } = require('../utils/databaseAvailability');
 
 const { logControllerError } = require('../utils/controllerLogger');
 const { BusinessError, withTransaction, lockCart, sendTransactionError } = require('../utils/transaction');
+const { alternatives, selection } = require('../utils/variants');
 
 const MAX_SQL_INT = 2_147_483_647;
 
@@ -22,9 +23,11 @@ function parsePositiveInt(value) {
 
 exports.getCart = async (req, res) => {
   try {
-    const query = 'SELECT ci.id, ci.quantity, p.id AS product_id, p.name, p.price, p.image_url ' +
+    const query = 'SELECT ci.id, ci.quantity, p.id AS product_id, p.name, p.price, p.image_url, ci.variant_id, ' +
+                  'COALESCE(v.size,p.size) AS variant_size, COALESCE(v.color,p.color) AS variant_color ' +
                   'FROM cart_items ci ' +
                   'JOIN products p ON ci.product_id = p.id ' +
+                  'LEFT JOIN product_variants v ON v.product_id=p.id AND v.id=ci.variant_id ' +
                   'WHERE ci.user_id = ?';
     const [rows] = await db.query(query, [req.user.id]);
     res.json(rows);
@@ -39,6 +42,9 @@ exports.addToCart = async (req, res) => {
     const { product_id, quantity = 1 } = req.body || {};
     const productId = parsePositiveInt(product_id);
     const qty = parsePositiveInt(quantity);
+    const rawVariant = req.body?.variant_id;
+    const variantId = rawVariant == null || rawVariant === 0 || rawVariant === '0' ? 0 : parsePositiveInt(rawVariant);
+    if (variantId === null) return res.status(400).json({message:'Biến thể không hợp lệ.'});
 
     if (productId === null) {
       return res.status(400).json({ message: 'Invalid product_id' });
@@ -59,18 +65,18 @@ exports.addToCart = async (req, res) => {
         throw new BusinessError(404, 'Product not found');
       }
 
-      const product = products[0];
+      const variant = selection(products[0], await alternatives(connection, productId, true), variantId);
 
       const [existing] = await connection.query(
-        'SELECT id, quantity FROM cart_items WHERE user_id = ? AND product_id = ?',
-        [req.user.id, productId]
+        'SELECT id, quantity FROM cart_items WHERE user_id = ? AND product_id = ? AND variant_id = ?',
+        [req.user.id, productId, variantId]
       );
 
       const newQty = existing.length > 0
         ? existing[0].quantity + qty
         : qty;
 
-      if (newQty > product.stock || newQty > MAX_SQL_INT) {
+      if (newQty > variant.stock || newQty > MAX_SQL_INT) {
         throw new BusinessError(409, 'Quantity exceeds stock');
       }
 
@@ -81,8 +87,8 @@ exports.addToCart = async (req, res) => {
         );
       } else {
         await connection.query(
-          'INSERT INTO cart_items (user_id, product_id, quantity) VALUES (?, ?, ?)',
-          [req.user.id, productId, qty]
+          'INSERT INTO cart_items (user_id, product_id, quantity, variant_id) VALUES (?, ?, ?, ?)',
+          [req.user.id, productId, qty, variantId]
         );
       }
 
@@ -110,7 +116,7 @@ exports.updateCartItem = async (req, res) => {
     await withTransaction(async connection => {
       await lockCart(connection, req.user.id);
       const [items] = await connection.query(
-        'SELECT id, product_id FROM cart_items WHERE id = ? AND user_id = ? FOR UPDATE',
+        'SELECT id, product_id, variant_id FROM cart_items WHERE id = ? AND user_id = ? FOR UPDATE',
         [itemId, req.user.id]
       );
 
@@ -122,7 +128,8 @@ exports.updateCartItem = async (req, res) => {
         'SELECT id, stock FROM products WHERE id = ? FOR UPDATE', [items[0].product_id]
       );
       if (!products.length) throw new BusinessError(404, 'Product not found');
-      if (quantity > products[0].stock) {
+      const variant = selection(products[0], await alternatives(connection, items[0].product_id, true), items[0].variant_id);
+      if (quantity > variant.stock) {
         throw new BusinessError(409, 'Quantity exceeds stock');
       }
 

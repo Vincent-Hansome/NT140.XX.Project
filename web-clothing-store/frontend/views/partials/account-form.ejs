@@ -1,0 +1,25 @@
+<section class="auth-page member-auth">
+  <div class="auth-panel">
+    <a class="member-back" href="/"><span aria-hidden="true">←</span> Cửa hàng</a>
+    <h1><%= registering ? 'Tạo tài khoản' : 'Đăng nhập' %></h1>
+    <p><%= registering ? 'Tạo tài khoản để đặt hàng và theo dõi đơn của bạn.' : 'Theo dõi đơn hàng và yêu cầu hỗ trợ của bạn.' %></p>
+    <form class="auth-form" data-auth-form data-mode="<%= registering ? 'register' : 'login' %>">
+      <% if (registering) { %>
+        <label>Họ và tên<input name="name" required maxlength="50" autocomplete="name"></label>
+      <% } %>
+      <label>Email<input name="email" type="email" required maxlength="100" autocomplete="email" placeholder="ban@email.com"></label>
+      <label>Mật khẩu
+        <% if (registering) { %>
+          <input name="password" type="password" required minlength="12" maxlength="72" autocomplete="new-password" aria-describedby="register-password-hint">
+        <% } else { %>
+          <input name="password" type="password" required autocomplete="current-password">
+        <% } %>
+      </label>
+      <% if (registering) { %><small id="register-password-hint">Ít nhất 12 ký tự, tối đa 72 byte UTF-8.</small><% } %>
+      <p class="form-message" data-auth-message role="status"></p>
+      <button class="button button-dark" type="submit"><%= registering ? 'Tạo tài khoản' : 'Đăng nhập' %> <span aria-hidden="true">→</span></button>
+    </form>
+    <p class="auth-switch"><%= registering ? 'Đã có tài khoản?' : 'Chưa có tài khoản?' %> <a href="<%= registering ? '/login' : '/register' %>"><%= registering ? 'Đăng nhập' : 'Đăng ký' %></a></p>
+  </div>
+  <div class="auth-image" aria-hidden="true"><img src="/images/editorial/collection.jpg" alt=""></div>
+</section>

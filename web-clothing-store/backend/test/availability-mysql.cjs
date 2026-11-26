@@ -33,6 +33,7 @@ async function main() {
   assert.ok(setup, 'Test MySQL did not become ready');
   const schema = await fs.readFile(path.resolve(__dirname, '../../database/schema.sql'), 'utf8');
   await setup.query(schema.slice(schema.indexOf('-- =========================')));
+  await require('../scripts/migrate-features.cjs').migrate(setup);
   await setup.query("INSERT INTO products(name,price,stock) VALUES('Availability fixture',10,5)");
   await setup.end(); setup = null;
   Object.assign(process.env, {

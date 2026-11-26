@@ -39,7 +39,11 @@
   }
 
   window.MocApi = {
-    image(value) { if (!value) return ''; return /^https?:\/\//i.test(value) ? value : `${host}${value.startsWith('/') ? '' : '/'}${value}`; },
+    image(value) {
+      if (!value) return '';
+      if (value.startsWith('/images/catalog/') || /^https?:\/\//i.test(value)) return value;
+      return `${host}${value.startsWith('/') ? '' : '/'}${value}`;
+    },
     async request(path, options = {}) {
       const method = (options.method || 'GET').toUpperCase();
       const headers = {

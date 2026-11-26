@@ -1,0 +1,23 @@
+name: moc-customer-support
+services:
+  db:
+    container_name: moc_support_db
+    environment:
+      MYSQL_DATABASE: web-clothing-store
+  backend:
+    container_name: moc_support_backend
+    ports: !reset []
+    environment:
+      DB_NAME: web-clothing-store
+      NODE_ENV: development
+      CSRF_TRUSTED_ORIGINS: "http://localhost:${MOC_PORT:-3000},http://127.0.0.1:${MOC_PORT:-3000}"
+    volumes: !override
+      - support_uploads:/app/uploads
+  frontend:
+    container_name: moc_support_frontend
+  gateway:
+    container_name: moc_support_gateway
+    ports: !override
+      - "127.0.0.1:${MOC_PORT:-3000}:80"
+volumes:
+  support_uploads:

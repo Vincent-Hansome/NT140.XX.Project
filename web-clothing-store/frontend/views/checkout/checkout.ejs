@@ -1,1 +1,30 @@
-﻿<section class="page checkout-page" data-checkout-page><span class="eyebrow">MỘC / HOÀN TẤT ĐƠN HÀNG</span><h1>Chốt lại<br><em>lựa chọn.</em></h1><div class="checkout-grid"><div class="checkout-note"><p>Đơn hàng được tạo từ giỏ hiện tại của bạn. Vui lòng kiểm tra lại trước khi xác nhận.</p><a href="/cart" class="text-link">← Quay lại giỏ hàng</a><p class="form-message" data-checkout-message></p></div><aside class="cart-summary"><span class="eyebrow">TÓM TẮT</span><div class="summary-line"><span>Số món</span><span data-checkout-count>—</span></div><div class="summary-line"><span>Tạm tính</span><span data-checkout-subtotal>—</span></div><div class="summary-line"><span>Giao hàng</span><span>Tính sau</span></div><div class="summary-total"><span>Tổng cộng</span><b data-checkout-total>—</b></div><button class="button button-dark checkout-button" data-place-order>Xác nhận đặt hàng →</button></aside></div></section>
+<section class="shop-wrap shop-basket" data-checkout-page>
+  <nav class="shop-crumbs" aria-label="Đường dẫn"><a href="/cart">Giỏ hàng</a><span aria-hidden="true">/</span><span aria-current="page">Thanh toán</span></nav>
+  <div class="shop-section-heading"><h1>Thanh toán</h1></div>
+  <div class="shop-basket-grid">
+    <div>
+      <div class="shop-review-heading"><h2>Sản phẩm trong đơn</h2><a class="shop-link" href="/cart">Sửa giỏ hàng</a></div>
+      <div data-checkout-items><p class="shop-status">Đang tải giỏ hàng…</p></div>
+    </div>
+    <aside class="shop-summary">
+      <h2>Xác nhận đơn hàng</h2>
+      <form class="commerce-coupon" data-coupon-form hidden>
+        <label for="coupon-code">Mã giảm giá</label>
+        <div class="commerce-inline">
+          <input id="coupon-code" name="code" maxlength="32" autocomplete="off" autocapitalize="characters">
+          <button type="submit">Áp dụng</button>
+          <button type="button" data-clear-coupon hidden>Bỏ mã</button>
+        </div>
+        <p class="form-message" data-coupon-message role="status"></p>
+      </form>
+      <dl>
+        <div><dt>Số lượng</dt><dd data-checkout-count>—</dd></div>
+        <div><dt>Tạm tính</dt><dd data-checkout-subtotal>—</dd></div>
+        <div data-discount-line hidden><dt>Giảm giá</dt><dd data-discount></dd></div>
+        <div class="shop-total"><dt>Số tiền cần trả</dt><dd data-checkout-total>—</dd></div>
+      </dl>
+      <button type="button" class="shop-cta checkout-button" data-place-order disabled>Xác nhận đặt hàng <span aria-hidden="true">→</span></button>
+      <p class="form-message" data-checkout-message role="status"></p>
+    </aside>
+  </div>
+</section>

@@ -1,1 +1,25 @@
-<header class="site-header"><button class="mobile-menu icon-button" id="menu-toggle" aria-label="M&#7903; menu">&#9776;</button><a class="wordmark" href="/">M&#7896;C<span>&reg;</span></a><nav class="site-nav" id="site-nav"><a href="/products">B&#7897; s&#432;u t&#7853;p</a><a href="/#story">C&#226;u chuy&#7879;n</a><a href="/orders">&#272;&#417;n h&#224;ng</a><a href="/support">Hỗ trợ</a><a href="/admin" data-admin-nav hidden>Qu&#7843;n tr&#7883;</a></nav><div class="header-actions"><span class="auth-links" data-auth-links><a href="/login">&#272;&#259;ng nh&#7853;p</a><a href="/register">&#272;&#259;ng k&#253;</a></span><a class="account-link" href="/profile" data-profile-nav hidden>T&#224;i kho&#7843;n</a><a class="bag-link" href="/cart">T&#250;i <i id="cart-count">0</i></a></div></header>
+<a class="skip-to-content" href="#main-content">Đến nội dung chính</a>
+<header class="moc-header" id="top">
+  <div class="moc-bar">
+    <button type="button" class="moc-menu" id="menu-toggle" aria-label="Mở menu" aria-expanded="false" aria-controls="site-nav">
+      <span aria-hidden="true"></span>
+    </button>
+    <a class="moc-mark" href="/" aria-label="MỘC — Trang chủ">MỘC</a>
+    <nav class="moc-nav" id="site-nav" aria-label="Điều hướng chính">
+      <a href="/products"<% if (currentPath.startsWith('/products')) { %> aria-current="location"<% } %>>Bộ sưu tập</a>
+      <a href="/#story">Câu chuyện</a>
+      <a href="/wishlist"<% if (currentPath === '/wishlist') { %> aria-current="page"<% } %>>Yêu thích</a>
+      <a href="/orders"<% if (currentPath === '/orders') { %> aria-current="page"<% } %>>Đơn hàng</a>
+      <a href="/support"<% if (currentPath === '/support') { %> aria-current="page"<% } %>>Hỗ trợ</a>
+      <a href="/admin" data-admin-nav hidden<% if (currentPath.startsWith('/admin')) { %> aria-current="location"<% } %>>Quản trị</a>
+    </nav>
+    <div class="moc-tools">
+      <span class="moc-guest" data-auth-links>
+        <a href="/register" class="moc-register">Đăng ký</a>
+        <a href="/login">Đăng nhập</a>
+      </span>
+      <a href="/profile" data-profile-nav hidden>Tài khoản</a>
+      <a class="moc-bag" href="/cart"><span>Túi đồ</span><span id="cart-count">0</span></a>
+    </div>
+  </div>
+</header>

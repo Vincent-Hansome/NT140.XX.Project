@@ -16,6 +16,7 @@
   "scripts": {
     "dev": "nodemon server.js",
     "start": "node server.js",
+    "migrate:features": "node scripts/migrate-features.cjs",
     "test": "node --test test/*.test.js",
     "test:mysql": "node test/run-mysql.cjs",
     "test:categories:mysql": "node test/run-category-mysql.cjs",

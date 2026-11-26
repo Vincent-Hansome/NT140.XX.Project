@@ -1,0 +1,21 @@
+<section class="page workspace-page insight-page" data-sales-report>
+  <a class="member-back" href="/admin">← Quản trị</a>
+  <h1>Báo cáo bán hàng</h1>
+  <form class="report-period">
+    <label>Từ ngày<input type="date" name="from" required></label>
+    <label>Đến ngày<input type="date" name="to" required></label>
+    <button class="button button-dark" type="submit">Xem báo cáo</button>
+  </form>
+  <p role="status" data-status></p>
+  <div data-result hidden>
+    <div class="report-numbers">
+      <div><h2>Doanh thu đơn đã giao</h2><strong data-sales></strong><small>Sau giảm giá, theo ngày giao (giờ Việt Nam).</small></div>
+      <div><h2>Số đơn đã giao</h2><strong data-order-count></strong></div>
+    </div>
+    <h2>Sản phẩm bán chạy</h2>
+    <table><thead><tr><th>Sản phẩm</th><th>Số lượng đã giao</th></tr></thead><tbody data-sellers></tbody></table>
+    <h2>Biến thể sắp hết hàng</h2>
+    <p>Tồn kho hiện tại từ 5 sản phẩm trở xuống, gồm cả hàng đã hết.</p>
+    <table><thead><tr><th>Sản phẩm</th><th>Size / màu</th><th>Còn lại</th></tr></thead><tbody data-stock></tbody></table>
+  </div>
+</section>

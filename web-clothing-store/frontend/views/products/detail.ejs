@@ -1,1 +1,45 @@
-﻿<section class="page detail-page" data-product-detail data-product-id="<%= productId %>"><a class="back-link" href="/products">← Bộ sưu tập</a><div class="detail-grid"><div class="detail-image"><img data-detail-image src="https://images.unsplash.com/photo-1591047139829-d91aecb6caea?auto=format&fit=crop&w=1100&q=85" alt="Chi tiết sản phẩm"><small>MỘC / MATERIAL STUDY</small></div><div class="detail-copy"><span class="eyebrow">THIẾT KẾ CÓ CHỦ ĐÍCH · 0<%= productId %></span><h1 data-detail-name>Đang tải sản phẩm…</h1><div class="detail-price" data-detail-price></div><hr><p data-detail-description></p><div class="detail-facts"><div><small>CHẤT LIỆU</small><b data-detail-color>Sợi tự nhiên</b></div><div><small>KÍCH CỠ</small><b data-detail-size>S / M / L</b></div><div><small>SẴN CÓ</small><b data-detail-stock>—</b></div></div><div class="purchase-row"><div class="quantity"><button type="button" data-quantity-minus>−</button><span data-quantity>1</span><button type="button" data-quantity-plus>+</button></div><button class="button button-dark" data-add-detail>Thêm vào giỏ →</button></div><small class="login-hint">Vui lòng <a href="/login">đăng nhập</a> để lưu sản phẩm vào giỏ hàng.</small><details><summary>Về thiết kế <span>⌄</span></summary><p>Đường cắt được cân nhắc để tôn trọng độ rủ tự nhiên của vải. Thiết kế tối giản, mặc được trong nhiều hoàn cảnh.</p></details><details><summary>Chăm sóc chất liệu <span>⌄</span></summary><p>Giặt nhẹ bằng nước mát, phơi trong bóng râm và là ở nhiệt độ phù hợp với chất liệu.</p></details><p class="form-message" data-detail-message></p></div></div></section>
+<section class="shop-wrap shop-product" data-product-detail data-product-id="<%= productId %>">
+  <nav class="shop-crumbs" aria-label="Đường dẫn"><a href="/">Trang chủ</a><span aria-hidden="true">/</span><a href="/products">Bộ sưu tập</a></nav>
+  <div class="shop-detail-grid">
+    <div class="shop-detail-photo"><img data-detail-image alt="" hidden><span data-detail-no-image hidden>Chưa có ảnh sản phẩm</span></div>
+    <div class="shop-detail-copy">
+      <h1 data-detail-name>Đang tải sản phẩm…</h1>
+      <p class="shop-price" data-detail-price></p>
+      <p class="shop-description" data-detail-description></p>
+      <dl class="shop-specs">
+        <div><dt><label for="variant-color">Màu sắc</label></dt><dd><select id="variant-color" data-detail-color></select></dd></div>
+        <div><dt><label for="variant-size">Kích cỡ</label></dt><dd><select id="variant-size" data-detail-size></select></dd></div>
+        <div><dt>Tồn kho</dt><dd data-detail-stock>—</dd></div>
+      </dl>
+      <div class="shop-purchase">
+        <div class="shop-stepper" role="group" aria-label="Số lượng sản phẩm">
+          <button type="button" aria-label="Giảm số lượng" data-quantity-minus disabled>−</button>
+          <output data-quantity aria-label="Số lượng">1</output>
+          <button type="button" aria-label="Tăng số lượng" data-quantity-plus disabled>+</button>
+        </div>
+        <button type="button" class="shop-cta" data-add-detail disabled>Thêm vào giỏ <span aria-hidden="true">→</span></button>
+      </div>
+      <p class="form-message" data-detail-message role="status"></p>
+      <button class="save-product" type="button" data-save-product="<%= productId %>" aria-pressed="false">Yêu thích</button>
+      <a class="shop-link" href="/support">Hỏi về sản phẩm <span aria-hidden="true">↗</span></a>
+    </div>
+  </div>
+  <section id="reviews" class="product-reviews" data-product-reviews="<%= productId %>" aria-labelledby="reviews-heading">
+    <h2 id="reviews-heading">Đánh giá sau mua</h2>
+    <p data-review-summary role="status">Đang tải đánh giá…</p>
+    <div data-review-list></div>
+    <button class="button button-outline" type="button" data-review-more hidden>Xem thêm đánh giá</button>
+    <p data-review-hint></p>
+    <form class="review-form" data-review-form hidden>
+      <label for="product-rating">Điểm của bạn</label>
+      <select id="product-rating" name="rating" required>
+        <option value="">Chọn số sao</option>
+        <% for (let score=5; score >=1; score--) { %><option value="<%= score %>"><%= score %> sao</option><% } %>
+      </select>
+      <label for="product-comment">Nhận xét của bạn</label>
+      <textarea id="product-comment" name="body" maxlength="1500" rows="3" required></textarea>
+      <button class="button button-dark" type="submit">Gửi đánh giá</button>
+    </form>
+    <p data-review-feedback role="status"></p>
+  </section>
+</section>

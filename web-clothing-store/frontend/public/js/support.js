@@ -14,6 +14,24 @@
   const labels = { open: 'Đã tiếp nhận', in_progress: 'Đang xử lý', resolved: 'Đã giải quyết' };
   let nextCursor = null;
   let loading = false;
+  const params = new URLSearchParams(location.search);
+  const ticketTarget = location.hash.match(/^#ticket-([1-9]\d*)$/)?.[1] || params.get('ticket');
+  let openedTarget = false;
+
+  async function loadOrders() {
+    const select = form.elements.order_id;
+    try {
+      const orders = await api.request('/orders');
+      for (const order of orders) {
+        const option = element('option', '', `MC-${String(order.id).padStart(5,'0')} · ${date(order.created_at)}`);
+        option.value = order.id;
+        select.append(option);
+      }
+      if (orders.some(order => String(order.id) === params.get('order'))) select.value = params.get('order');
+    } catch (error) {
+      if (error.status !== 401) feedback(root.querySelector('[data-support-order-note]'), 'Chưa tải được danh sách đơn hàng.', true);
+    }
+  }
 
   function element(tag, className, text) {
     const node = document.createElement(tag);
@@ -50,73 +68,81 @@
     if (admin) meta.append(element('span', '', `${ticket.customer_name} · ${ticket.customer_email}`));
     summary.append(meta);
     const body = element('div', 'support-ticket-content');
-    body.append(element('p', 'support-ticket-body', ticket.message));
-    const reply = element('div', 'support-ticket-reply');
-    const replyText = element('p', 'support-ticket-reply-text', ticket.admin_reply);
-    const replyTime = element('time', '', date(ticket.replied_at));
-    reply.append(element('h3', '', 'Phản hồi từ MỘC'), replyText, replyTime);
-    reply.hidden = !ticket.admin_reply;
-    body.append(reply);
-
+    if (ticket.order_id) meta.append(element('span', '', `Đơn MC-${String(ticket.order_id).padStart(5, '0')}`));
+    body.append(element('strong', 'support-message-author', 'Khách hàng'), element('p', 'support-ticket-body', ticket.message));
+    const history = element('div', 'support-thread');
+    const historyError = element('p', 'support-feedback');
+    body.append(history, historyError);
+    let historyVersion = 0;
+    async function loadThread() {
+      const version = ++historyVersion;
+      try {
+        const messages = await api.request(`${endpoint}/${ticket.id}/messages`);
+        if (version !== historyVersion) return;
+        history.replaceChildren(...messages.map(row => {
+          const item = element('article', 'support-ticket-reply');
+          item.append(element('h3', '', row.sender_role === 'admin' ? 'MỘC · Hỗ trợ' : 'Khách hàng'),
+            element('p', 'support-ticket-reply-text', row.body), element('time', '', date(row.created_at)));
+          return item;
+        }));
+        feedback(historyError, '');
+      } catch (error) {
+        if (version === historyVersion) feedback(historyError, error.message, true);
+      }
+    }
+    card.id = `ticket-${ticket.id}`;
+    card.addEventListener('toggle', () => { if (card.open) loadThread(); });
+    const editor = element('form', 'support-form support-admin-form');
+    let status;
     if (admin) {
-      const editor = element('form', 'support-form support-admin-form');
-      const statusId = `support-status-${ticket.id}`;
-      const replyId = `support-reply-${ticket.id}`;
-      const statusLabel = element('label', '', 'Trạng thái xử lý');
-      statusLabel.htmlFor = statusId;
-      const status = element('select');
-      status.id = statusId;
-      status.name = 'status';
+      const label = element('label', '', 'Trạng thái xử lý');
+      label.htmlFor = `support-status-${ticket.id}`;
+      status = element('select');
+      status.id = label.htmlFor;
       for (const [value, title] of Object.entries(labels)) {
         const option = element('option', '', title);
         option.value = value;
         status.append(option);
       }
       status.value = ticket.status;
-      const replyLabel = element('label', '', 'Phản hồi cho khách hàng');
-      replyLabel.htmlFor = replyId;
-      const input = element('textarea');
-      input.id = replyId;
-      input.name = 'reply';
-      input.rows = 4;
-      input.maxLength = 4000;
-      input.value = ticket.admin_reply || '';
-      const hint = element('small', '', 'Tối đa 4.000 ký tự. Có thể chỉ cập nhật trạng thái; để trống sẽ giữ phản hồi đã có.');
-      hint.id = `${replyId}-hint`;
-      input.setAttribute('aria-describedby', hint.id);
-      const message = element('p', 'support-feedback');
-      message.setAttribute('role', 'status');
-      message.setAttribute('aria-live', 'polite');
-      const save = element('button', 'button button-dark', 'Lưu phản hồi →');
-      save.type = 'submit';
-      editor.append(statusLabel, status, element('small', '', 'Khách hàng sẽ thấy trạng thái và phản hồi này.'), replyLabel, input, hint, message, save);
-      editor.addEventListener('submit', async event => {
-        event.preventDefault();
-        if (save.disabled || !editor.reportValidity()) return;
-        const payload = { status: status.value };
-        if (input.value.trim()) payload.reply = input.value.trim();
-        save.disabled = true;
-        save.textContent = 'Đang lưu…';
-        feedback(message, '');
-        try {
-          const updated = await api.request(`${endpoint}/${encodeURIComponent(ticket.id)}`, { method: 'PATCH', body: JSON.stringify(payload) });
-          Object.assign(ticket, updated);
-          badge.textContent = labels[updated.status];
-          badge.className = `support-status support-status-${updated.status}`;
-          replyText.textContent = updated.admin_reply || '';
-          replyTime.textContent = date(updated.replied_at);
-          reply.hidden = !updated.admin_reply;
-          input.value = updated.admin_reply || '';
-          feedback(message, 'Đã lưu cập nhật hỗ trợ.');
-        } catch (error) {
-          if (!showAuthentication(error)) feedback(message, error.message, true);
-        } finally {
-          save.disabled = false;
-          save.textContent = 'Lưu phản hồi →';
-        }
-      });
-      body.append(editor);
+      editor.append(label, status);
     }
+    const label = element('label', '', admin ? 'Phản hồi cho khách hàng' : 'Trả lời MỘC');
+    label.htmlFor = `support-reply-${ticket.id}`;
+    const input = element('textarea');
+    input.id = label.htmlFor;
+    input.rows = 3;
+    input.maxLength = 4000;
+    input.required = !admin;
+    const message = element('p', 'support-feedback');
+    const buttonLabel = admin ? 'Lưu phản hồi' : 'Gửi tin nhắn';
+    const save = element('button', 'button button-dark', buttonLabel);
+    save.type = 'submit';
+    editor.append(label, input, message, save);
+    editor.addEventListener('submit', async event => {
+      event.preventDefault();
+      if (save.disabled || !editor.reportValidity()) return;
+      const text = input.value.trim();
+      if (!admin && !text) return feedback(message, 'Nhập tin nhắn muốn gửi.', true);
+      const payload = admin ? { status: status.value } : { message: text };
+      if (admin && text) payload.reply = text;
+      save.disabled = true;
+      feedback(message, '');
+      try {
+        const result = await api.request(`${endpoint}/${ticket.id}${admin ? '' : '/messages'}`, {
+          method: admin ? 'PATCH' : 'POST', body: JSON.stringify(payload)
+        });
+        ticket.status = result.status;
+        badge.textContent = labels[ticket.status];
+        badge.className = `support-status support-status-${ticket.status}`;
+        input.value = '';
+        await loadThread();
+        feedback(message, admin ? 'Đã lưu cập nhật hỗ trợ.' : 'Đã gửi tin nhắn.');
+      } catch (error) {
+        if (!showAuthentication(error)) feedback(message, error.message, true);
+      } finally { save.disabled = false; }
+    });
+    body.append(editor);
     card.append(summary, body);
     return card;
   }
@@ -130,15 +156,26 @@
     feedback(listMessage, 'Đang tải yêu cầu…');
     try {
       const data = await api.request(`${endpoint}${append && nextCursor ? `?before=${encodeURIComponent(nextCursor)}` : ''}`);
+      feedback(listMessage, '');
       if (!append) list.replaceChildren();
-      for (const ticket of data.tickets) list.append(ticketCard(ticket));
+      for (const ticket of data.tickets) {
+        if (!document.getElementById(`ticket-${ticket.id}`)) list.append(ticketCard(ticket));
+      }
+      if (!admin && !openedTarget && /^[1-9]\d*$/.test(ticketTarget || '')) {
+        openedTarget = true;
+        let card = document.getElementById(`ticket-${ticketTarget}`);
+        if (!card) {
+          try { card = ticketCard(await api.request(`${endpoint}/${ticketTarget}`)); list.prepend(card); }
+          catch (error) { feedback(listMessage, error.message, true); }
+        }
+        if (card) { card.open = true; requestAnimationFrame(() => card.scrollIntoView({block:'nearest'})); }
+      }
       if (!append && !data.tickets.length) list.append(element('p', 'support-empty', admin ? 'Chưa có yêu cầu hỗ trợ nào.' : 'Bạn chưa có yêu cầu nào. Gửi lời nhắn đầu tiên để MỘC hỗ trợ bạn.'));
       nextCursor = data.nextCursor;
       more.hidden = !nextCursor;
       content.hidden = false;
       root.querySelector('[data-support-signin]').hidden = true;
       feedback(pageMessage, '');
-      feedback(listMessage, '');
     } catch (error) {
       if (!showAuthentication(error)) {
         content.hidden = false;
@@ -171,7 +208,9 @@
     button.textContent = 'Đang gửi…';
     feedback(message, '');
     try {
-      const result = await api.request(endpoint, { method: 'POST', body: JSON.stringify({ subject, message: body }) });
+      const payload = { subject, message: body };
+      if (form.elements.order_id.value) payload.order_id = form.elements.order_id.value;
+      const result = await api.request(endpoint, { method: 'POST', body: JSON.stringify(payload) });
       form.reset();
       feedback(message, `Đã gửi yêu cầu HT-${String(result.id).padStart(5, '0')}. Bạn có thể theo dõi phản hồi bên dưới.`);
       await load();
@@ -182,5 +221,6 @@
       button.textContent = 'Gửi yêu cầu →';
     }
   });
+  if (form) loadOrders();
   load();
 })();

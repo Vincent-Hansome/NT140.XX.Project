@@ -5,6 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const apiSource = fs.readFileSync(path.resolve(__dirname, '../../frontend/public/js/api.js'), 'utf8');
 const storeSource = fs.readFileSync(path.resolve(__dirname, '../../frontend/public/js/store.js'), 'utf8');
+const commerceSource = fs.readFileSync(path.resolve(__dirname, '../../frontend/public/js/commerce.js'), 'utf8');
 
 function element(selectors = {}) {
   return {
@@ -27,7 +28,7 @@ function store(roots = {}, request = async route => route === '/cart' ? [] : {},
   const sessionStorage=options.sessionStorage || {
     getItem: key=>storage.get(key) ?? null, setItem: (key,value)=>storage.set(key,String(value)), removeItem: key=>storage.delete(key)
   };
-  vm.runInNewContext(storeSource, { window: { MocApi: api, location, sessionStorage, crypto: require('node:crypto').webcrypto }, document, location, URLSearchParams,
+  vm.runInNewContext(storeSource, { window: { MocApi: api, MocCommerce: options.commerce, location, sessionStorage, crypto: require('node:crypto').webcrypto }, document, location, URLSearchParams,
     FormData: FormType, setTimeout(fn) { timers.push(fn); } });
   return { events, navigations, timers };
 }
@@ -39,6 +40,54 @@ function checkoutRoot() {
   return {root,button,message};
 }
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
+
+test('coupon preview requires explicit application and removing the code restores the undiscounted total', async()=>{
+  const code=element(), submit=element(), clear=element(), feedback=element();
+  const form=element({'[data-clear-coupon]':clear,'[data-coupon-message]':feedback});
+  form.elements=Object.assign([code,submit,clear],{code});
+  const button=element(), total=element(), line=element();
+  const root=element({'[data-coupon-form]':form,'[data-place-order]':button,'[data-discount-line]':line,
+    '[data-discount]':element(),'[data-checkout-total]':total,'[data-checkout-subtotal]':element()});
+  const window={MocApi:{money:String,escape:String,request:async()=>{
+    if(code.value==='invalid')throw new Error('Mã hết hạn');
+    return {code:'HELLO',subtotal:'100.00',discount:'25.00',total:'75.00'};
+  }}};
+  vm.runInNewContext(commerceSource,{window,document:{querySelector:()=>null}});
+  const coupon=window.MocCommerce.checkoutCoupon(root,100,true,null,null);
+  code.value='invalid';code.listeners.input();
+  await form.listeners.submit({preventDefault(){}});
+  assert.equal(button.disabled,true);assert.equal(feedback.textContent,'Mã hết hạn');assert.equal(coupon.offer(),null);
+  code.value='hello';code.listeners.input();await form.listeners.submit({preventDefault(){}});
+  assert.equal(total.textContent,'75.00');assert.equal(button.disabled,false);assert.equal(line.hidden,false);
+  clear.listeners.click();assert.equal(total.textContent,'100');assert.equal(line.hidden,true);assert.equal(coupon.offer(),null);
+});
+
+test('checkout retries the same coupon and quoted total after a response is lost',async()=>{
+  const storage=new Map(), sent=[];
+  const offer={code:'HELLO',subtotal:'100.00',total:'75.00',discount:'25.00'};
+  const commerce={checkoutCoupon(root,total,hasItems,pending,saved){
+    if(pending) assert.deepEqual(saved,offer);
+    return {offer:()=>offer,lock(){}};
+  }};
+  const api=async(route,options)=>{
+    if(route==='/users/me')return {id:1};
+    if(route==='/cart')return [{price:'100.00',quantity:1}];
+    if(route==='/orders') {
+      sent.push([options.headers['Idempotency-Key'],JSON.parse(options.body)]);
+      if(sent.length===1)throw new Error('Connection lost');
+      return {orderId:4};
+    }
+    return {};
+  };
+  for(let i=0;i<2;i++){
+    const state=checkoutRoot();
+    store({'[data-checkout-page]':state.root},api,FormData,{storage,commerce});
+    await flush();await state.button.listeners.click();
+  }
+  assert.deepEqual(sent[0],sent[1]);
+  assert.deepEqual(sent[0][1],{coupon:'HELLO',expected_total:'75.00'});
+  assert.equal(storage.size,0);
+});
 
 test('checkout retains its key across a lost response, reload and changed cart; success clears it',async()=>{
   const storage=new Map(), submitted=[];
@@ -245,22 +294,44 @@ test('admin form submits its revision, preserves a stale draft and saves a fresh
   assert.equal(form.hidden, true);
   assert.match(message.textContent, /Đã cập nhật/);
 });
-test('password UI sends the change then redirects to a login notice; failure keeps the form usable', async () => {
+test('password changes require opening the profile disclosure; cancel clears it and submit reports the outcome', async () => {
   for (const success of [true, false]) {
-    const message = element(), button = element();
-    const form = element({ '[data-password-message]': message, 'button[type="submit"]': button });
-    form.reset = () => {};
-    const profile = element({ '[data-password-change-form]': form, '[data-profile-message]': element(),
+    const message = element(), button = element(), toggle = element(), cancel = element();
+    let focus, expanded, writes = 0;
+    toggle.focus = () => { focus = 'toggle'; };
+    toggle.setAttribute = (name, value) => { if (name === 'aria-expanded') expanded = value; };
+    const form = element({ '[data-password-message]': message, 'button[type="submit"]': button,
+      '[data-password-cancel]': cancel });
+    form.hidden = true;
+    form.elements = { currentPassword: { focus() { focus = 'currentPassword'; } } };
+    form.reset = () => { form.elements.currentPassword.value = ''; };
+    const profile = element({ '[data-password-change-form]': form, '[data-password-toggle]': toggle, '[data-profile-message]': element(),
       '[data-profile-name]': element(), '[data-profile-email]': element(), '[data-profile-created]': element(),
       '.profile-loading': element(), '.profile-content': element() });
     const context = { window: { MocApi: { request: async (route, options) => {
+      if (options) writes++;
       if (options && !success) throw new Error('Current password is incorrect');
       return route === '/cart' ? [] : {};
     } } }, document: { querySelector: s => s === '[data-profile-page]' ? profile : s === '#cart-count' ? element() : null,
       addEventListener() {} }, location: { assign(url) { context.destination = url; } },
       FormData: class { entries() { return [['currentPassword', 'old'], ['newPassword', 'new']]; } } };
     vm.runInNewContext(storeSource, context);
+    await flush();
+    assert.equal(form.hidden, true);
+    toggle.listeners.click();
+    assert.equal(form.hidden, false);
+    assert.equal(expanded, 'true');
+    assert.equal(focus, 'currentPassword');
+    form.elements.currentPassword.value = 'unsaved password';
+    cancel.listeners.click();
+    assert.equal(form.hidden, true);
+    assert.equal(expanded, 'false');
+    assert.equal(focus, 'toggle');
+    assert.equal(form.elements.currentPassword.value, '');
+    assert.equal(writes, 0);
+    toggle.listeners.click();
     await form.listeners.submit({ preventDefault() {} });
+    assert.equal(writes, 1);
     assert.equal(context.destination, success ? '/login?reason=password-changed' : undefined);
     assert.match(message.textContent, success ? /đăng nhập lại/ : /incorrect/);
     assert.equal(button.disabled, false);

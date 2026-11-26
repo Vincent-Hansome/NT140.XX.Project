@@ -62,7 +62,7 @@ const fakeDb = {
     if (normalizedSql === 'SELECT id FROM users WHERE id = ?') {
       return [users.has(params[0]) ? [{ id: params[0] }] : []];
     }
-    if (normalizedSql === 'SELECT id, product_id FROM cart_items WHERE id = ? AND user_id = ?') {
+    if (normalizedSql === 'SELECT id, product_id, variant_id FROM cart_items WHERE id = ? AND user_id = ?') {
       return [cartItems.filter(item => item.id === params[0] && item.user_id === params[1])];
     }
 
@@ -216,9 +216,10 @@ const fakeDb = {
       return [cartItems.filter((item) => item.user_id === params[0])];
     }
 
-    if (normalizedSql === 'SELECT id, quantity FROM cart_items WHERE user_id = ? AND product_id = ?') {
+    if (normalizedSql.includes('FROM product_variants WHERE product_id = ? ORDER BY id')) return [[]];
+    if (normalizedSql === 'SELECT id, quantity FROM cart_items WHERE user_id = ? AND product_id = ? AND variant_id = ?') {
       return [cartItems
-        .filter((item) => item.user_id === params[0] && item.product_id === params[1])
+        .filter((item) => item.user_id === params[0] && item.product_id === params[1] && (item.variant_id || 0) === params[2])
         .map(({ id, quantity }) => ({ id, quantity }))];
     }
 
@@ -235,10 +236,10 @@ const fakeDb = {
       return [{ affectedRows: item ? 1 : 0 }];
     }
 
-    if (normalizedSql === 'INSERT INTO cart_items (user_id, product_id, quantity) VALUES (?, ?, ?)') {
-      const [userId, productId, quantity] = params;
+    if (normalizedSql === 'INSERT INTO cart_items (user_id, product_id, quantity, variant_id) VALUES (?, ?, ?, ?)') {
+      const [userId, productId, quantity, variant_id] = params;
       const id = Math.max(0, ...cartItems.map((item) => item.id)) + 1;
-      cartItems.push({ id, user_id: userId, product_id: productId, quantity, name: 'Test product' });
+      cartItems.push({ id, user_id: userId, product_id: productId, quantity, variant_id, name: 'Test product' });
       return [{ insertId: id }];
     }
 
@@ -757,7 +758,7 @@ test('cart item reads and mutations are scoped to the authenticated user and val
     assert.equal(forbiddenUpdate.response.status, 404);
     assert.equal(cartItems.find((item) => item.id === 202).quantity, 1);
     assert.equal(queryLog.some(({ sql }) => sql.startsWith('UPDATE cart_items')), false);
-    assert.ok(queryLog.some(({ sql, params }) => sql.startsWith('SELECT id, product_id FROM cart_items') && params[0] === 202 && params[1] === 1));
+    assert.ok(queryLog.some(({ sql, params }) => sql.startsWith('SELECT id, product_id, variant_id FROM cart_items') && params[0] === 202 && params[1] === 1));
 
     const forbiddenDelete = await request('/api/cart/202', { token: userAToken, method: 'DELETE' });
     assert.equal(forbiddenDelete.response.status, 404);

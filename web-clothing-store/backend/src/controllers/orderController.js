@@ -3,6 +3,8 @@ const db = require('../config/db');
 const { logControllerError } = require('../utils/controllerLogger');
 const { BusinessError, withTransaction, lockCart, sendTransactionError } = require('../utils/transaction');
 const { MAX_TOTAL_CENTS, toCents, toDecimal } = require('../utils/money');
+const { alternatives, selection } = require('../utils/variants');
+const { priceWithCoupon, recordRedemption } = require('../utils/orderCommerce');
 
 exports.createOrder = async (req, res) => {
   const suppliedKey = req.get('Idempotency-Key');
@@ -20,7 +22,7 @@ exports.createOrder = async (req, res) => {
       );
       if (previous.length) return { orderId: previous[0].id, total: String(previous[0].total) };
       const [cartItems] = await connection.query(
-        'SELECT id, product_id, quantity FROM cart_items WHERE user_id = ? ORDER BY product_id FOR UPDATE',
+        'SELECT id, product_id, quantity, variant_id FROM cart_items WHERE user_id = ? ORDER BY product_id, variant_id FOR UPDATE',
         [req.user.id]
       );
       if (!cartItems.length) throw new BusinessError(400, 'Cart is empty');
@@ -28,27 +30,40 @@ exports.createOrder = async (req, res) => {
       let totalCents = 0n;
       for (const item of cartItems) {
         const [products] = await connection.query(
-          'SELECT id, price, stock FROM products WHERE id = ? FOR UPDATE', [item.product_id]
+          'SELECT id, price, stock, size, color FROM products WHERE id = ? FOR UPDATE', [item.product_id]
         );
         if (!products.length || products[0].stock < item.quantity) {
           throw new BusinessError(409, 'Insufficient stock for product ' + item.product_id);
         }
         item.price = products[0].price;
+        item.variant = selection(products[0], await alternatives(connection, item.product_id, true), item.variant_id);
+        if (item.variant.stock < item.quantity) throw new BusinessError(409, 'Biến thể đã chọn không còn đủ hàng.');
         totalCents += toCents(item.price) * BigInt(item.quantity);
       }
       if (totalCents > MAX_TOTAL_CENTS) {
         throw new BusinessError(422, 'Order total exceeds the maximum of 99999999.99. Please reduce your cart.');
       }
-      const total = toDecimal(totalCents);
+      const offer = req.body?.coupon === undefined ? null
+        : await priceWithCoupon(connection, req.body.coupon, totalCents, true);
+      if (offer && req.body.expected_total !== undefined && req.body.expected_total !== offer.total) {
+        throw new BusinessError(409, 'Giá trị đơn hàng đã thay đổi. Hãy kiểm tra lại mã giảm giá.');
+      }
+      const total = offer ? offer.total : toDecimal(totalCents);
       const [order] = await connection.query(
         'INSERT INTO orders (user_id, total, status, checkout_key) VALUES (?, ?, ?, ?)',
         [req.user.id, total, 'pending', checkoutKey]
       );
+      if (offer) await recordRedemption(connection, order.insertId, offer);
       for (const item of cartItems) {
         await connection.query(
-          'INSERT INTO order_items (order_id, product_id, quantity, price) VALUES (?, ?, ?, ?)',
-          [order.insertId, item.product_id, item.quantity, item.price]
+          'INSERT INTO order_items (order_id, product_id, quantity, price, variant_id, variant_size, variant_color) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          [order.insertId, item.product_id, item.quantity, item.price, item.variant.id || null, item.variant.size, item.variant.color]
         );
+        if (item.variant.id) {
+          const [deduction] = await connection.query('UPDATE product_variants SET stock=stock-? WHERE id=? AND product_id=? AND stock>=?',
+            [item.quantity,item.variant.id,item.product_id,item.quantity]);
+          if (deduction.affectedRows !== 1) throw new BusinessError(409,'Biến thể đã chọn không còn đủ hàng.');
+        }
         const [updated] = await connection.query(
           'UPDATE products SET stock = stock - ? WHERE id = ? AND stock >= ?',
           [item.quantity, item.product_id, item.quantity]
@@ -98,6 +113,10 @@ exports.getOrderDetail = async (req, res) => {
 
 exports.getAllOrdersAdmin = async (req, res) => {
   try {
+    const before = req.query.before;
+    if (before !== undefined && !require('../middlewares/idValidationMiddleware').isValidId(before)) {
+      return res.status(400).json({message: 'Vị trí trong danh sách không hợp lệ.'});
+    }
     const [orders] = await db.query(`
       SELECT
         o.id,
@@ -109,9 +128,10 @@ exports.getAllOrdersAdmin = async (req, res) => {
         o.created_at
       FROM orders o
       JOIN users u ON u.id = o.user_id
-      ORDER BY o.created_at DESC
+      WHERE o.id < ?
+      ORDER BY o.id DESC
       LIMIT 500
-    `);
+    `, [before || 2147483648]);
 
     res.json(orders);
   } catch (err) {
